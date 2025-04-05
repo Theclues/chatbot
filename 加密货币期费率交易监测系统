@@ -522,69 +522,75 @@ def display_stats_data():
             (datetime.now() - st.session_state.last_stats_update).total_seconds() > 60):
         load_stats_data()
 
-    if st.session_state.stats_data:
-        data = st.session_state.stats_data
-        timestamp = data.get("timestamp", "未知")
+    # 创建一个容器来包含所有统计数据
+    container = st.container()
 
-        # 创建四列布局
-        col1, col2, col3, col4 = st.columns(4)
+    with container:
+        if st.session_state.stats_data:
+            data = st.session_state.stats_data
+            timestamp = data.get("timestamp", "未知")
 
-        # 1. 费率最高的交易对
-        with col1:
-            st.subheader("费率最高的交易对")
-            if "highest_rates" in data and data["highest_rates"]:
-                df_highest = pd.DataFrame([
-                    {"交易对": item.get("symbol", ""),
-                     "费率": f"{item.get('rate', 0) * 100:.2f}%"}
-                    for item in data["highest_rates"]
-                ])
-                st.dataframe(df_highest, hide_index=True)
-            else:
-                st.write("暂无数据")
+            # 创建四列布局
+            col1, col2, col3, col4 = st.columns(4)
 
-        # 2. 费率最低的交易对
-        with col2:
-            st.subheader("费率最低的交易对")
-            if "lowest_rates" in data and data["lowest_rates"]:
-                df_lowest = pd.DataFrame([
-                    {"交易对": item.get("symbol", ""),
-                     "费率": f"{item.get('rate', 0) * 100:.2f}%"}
-                    for item in data["lowest_rates"]
-                ])
-                st.dataframe(df_lowest, hide_index=True)
-            else:
-                st.write("暂无数据")
+            # 1. 费率最高的交易对
+            with col1:
+                st.subheader("费率最高的交易对")
+                if "highest_rates" in data and data["highest_rates"]:
+                    df_highest = pd.DataFrame([
+                        {"交易对": item.get("symbol", ""),
+                         "费率": f"{item.get('rate', 0) * 100:.2f}%"}
+                        for item in data["highest_rates"]
+                    ])
+                    st.dataframe(df_highest, hide_index=True)
+                else:
+                    st.write("暂无数据")
 
-        # 3. 费率增长最大的交易对
-        with col3:
-            st.subheader("费率上升最快")
-            if "biggest_increases" in data and data["biggest_increases"]:
-                df_increases = pd.DataFrame([
-                    {"交易对": item.get("symbol", ""),
-                     "变化": f"{item.get('change', 0) * 100:.4f}%"}
-                    for item in data["biggest_increases"]
-                ])
-                st.dataframe(df_increases, hide_index=True)
-            else:
-                st.write("暂无数据")
+            # 2. 费率最低的交易对
+            with col2:
+                st.subheader("费率最低的交易对")
+                if "lowest_rates" in data and data["lowest_rates"]:
+                    df_lowest = pd.DataFrame([
+                        {"交易对": item.get("symbol", ""),
+                         "费率": f"{item.get('rate', 0) * 100:.2f}%"}
+                        for item in data["lowest_rates"]
+                    ])
+                    st.dataframe(df_lowest, hide_index=True)
+                else:
+                    st.write("暂无数据")
 
-        # 4. 费率下降最大的交易对
-        with col4:
-            st.subheader("费率下降最快")
-            if "biggest_decreases" in data and data["biggest_decreases"]:
-                df_decreases = pd.DataFrame([
-                    {"交易对": item.get("symbol", ""),
-                     "变化": f"{item.get('change', 0) * 100:.4f}%"}
-                    for item in data["biggest_decreases"]
-                ])
-                st.dataframe(df_decreases, hide_index=True)
-            else:
-                st.write("暂无数据")
+            # 3. 费率增长最大的交易对
+            with col3:
+                st.subheader("费率上升最快")
+                if "biggest_increases" in data and data["biggest_increases"]:
+                    df_increases = pd.DataFrame([
+                        {"交易对": item.get("symbol", ""),
+                         "变化": f"{item.get('change', 0) * 100:.4f}%"}
+                        for item in data["biggest_increases"]
+                    ])
+                    st.dataframe(df_increases, hide_index=True)
+                else:
+                    st.write("暂无数据")
 
-        # 显示更新时间
-        st.caption(f"更新时间: {timestamp}")
-    else:
-        st.error("未能加载数据，请检查API连接")
+            # 4. 费率下降最大的交易对
+            with col4:
+                st.subheader("费率下降最快")
+                if "biggest_decreases" in data and data["biggest_decreases"]:
+                    df_decreases = pd.DataFrame([
+                        {"交易对": item.get("symbol", ""),
+                         "变化": f"{item.get('change', 0) * 100:.4f}%"}
+                        for item in data["biggest_decreases"]
+                    ])
+                    st.dataframe(df_decreases, hide_index=True)
+                else:
+                    st.write("暂无数据")
+
+            # 显示更新时间
+            st.caption(f"更新时间: {timestamp}")
+        else:
+            st.error("未能加载数据，请检查API连接")
+
+    return container  # 返回容器对象
 
 
 # 侧边栏控件
@@ -643,7 +649,10 @@ with st.sidebar:
 # 主页面标题
 st.title("加密货币期现溢价监控")
 
-display_stats_data()
+# 创建统计数据占位符
+stats_placeholder = st.empty()
+with stats_placeholder:
+    display_stats_data()  # 初始显示统计数据
 
 # 创建固定容器 - 只用于显示最新数据
 metrics_placeholder = st.empty()
@@ -675,11 +684,19 @@ if st.session_state.running:
         with chart_col3:
             st.session_state.charts[2] = st.empty()
 
+    # 记录上次统计数据更新时间
+    last_stats_refresh = time.time()
+
     while st.session_state.running:
         # 更新数据
         spot_price, futures_price, premium, funding_rate, open_interest = update_data(st.session_state.symbol)
 
-
+        # 检查是否需要更新统计数据（每60秒更新一次）
+        current_time = time.time()
+        if current_time - last_stats_refresh > 60:
+            with stats_placeholder:
+                display_stats_data()  # 更新统计数据
+            last_stats_refresh = current_time
 
         # 使用单个占位符显示最新指标
         if spot_price is not None and futures_price is not None:
@@ -709,24 +726,3 @@ if st.session_state.running:
         for i in range(UPDATE_INTERVAL, 0, -1):
             progress_placeholder.progress(1 - i / UPDATE_INTERVAL, text=f"下次更新倒计时: {i}秒")
             time.sleep(1)
-else:
-
-
-    st.info(f"点击侧边栏中的'开始监控'按钮开始实时监控 {st.session_state.symbol}")
-
-    # 如果有历史数据，显示最后的图表
-    if st.session_state.timestamps:
-        with chart_col1:
-            premium_fig = create_premium_chart()
-            if premium_fig:
-                st.plotly_chart(premium_fig, use_container_width=True)
-
-        with chart_col2:
-            funding_fig = create_funding_rate_chart()
-            if funding_fig:
-                st.plotly_chart(funding_fig, use_container_width=True)
-
-        with chart_col3:
-            open_interest_fig = create_open_interest_chart()
-            if open_interest_fig:
-                st.plotly_chart(open_interest_fig, use_container_width=True)
