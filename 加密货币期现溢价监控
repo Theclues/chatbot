@@ -271,27 +271,25 @@ def update_data(symbol):
             st.session_state.open_interest.append(0)
 
         # 清理过期数据 - 只保留过去4小时的数据
-        cutoff_time = now - timedelta(hours=HOURS_TO_DISPLAY)
+        # 但确保不会因为历史数据不足而导致数据减少
+        if len(st.session_state.timestamps) > 1:  # 确保至少有数据
+            cutoff_time = now - timedelta(hours=HOURS_TO_DISPLAY)
 
-        # 找到第一个不小于cutoff_time的时间戳的索引
-        valid_indices = [i for i, ts in enumerate(st.session_state.timestamps) if ts >= cutoff_time]
-        if valid_indices:
-            start_idx = valid_indices[0]
-            st.session_state.timestamps = st.session_state.timestamps[start_idx:]
-            st.session_state.spot_prices = st.session_state.spot_prices[start_idx:]
-            st.session_state.futures_prices = st.session_state.futures_prices[start_idx:]
-            st.session_state.premiums = st.session_state.premiums[start_idx:]
-            st.session_state.funding_rates = st.session_state.funding_rates[start_idx:]
-            st.session_state.open_interest = st.session_state.open_interest[start_idx:]
+            # 检查最早的时间戳是否已经在4小时内
+            # 如果是，则不需要清理，让数据自然累积到4小时
+            if st.session_state.timestamps[0] < cutoff_time:
+                # 找到第一个不小于cutoff_time的时间戳的索引
+                valid_indices = [i for i, ts in enumerate(st.session_state.timestamps) if ts >= cutoff_time]
+                if valid_indices:
+                    start_idx = valid_indices[0]
+                    st.session_state.timestamps = st.session_state.timestamps[start_idx:]
+                    st.session_state.spot_prices = st.session_state.spot_prices[start_idx:]
+                    st.session_state.futures_prices = st.session_state.futures_prices[start_idx:]
+                    st.session_state.premiums = st.session_state.premiums[start_idx:]
+                    st.session_state.funding_rates = st.session_state.funding_rates[start_idx:]
+                    st.session_state.open_interest = st.session_state.open_interest[start_idx:]
 
-        # 限制数据点数量
-        if len(st.session_state.timestamps) > MAX_DATA_POINTS:
-            st.session_state.timestamps = st.session_state.timestamps[-MAX_DATA_POINTS:]
-            st.session_state.spot_prices = st.session_state.spot_prices[-MAX_DATA_POINTS:]
-            st.session_state.futures_prices = st.session_state.futures_prices[-MAX_DATA_POINTS:]
-            st.session_state.premiums = st.session_state.premiums[-MAX_DATA_POINTS:]
-            st.session_state.funding_rates = st.session_state.funding_rates[-MAX_DATA_POINTS:]
-            st.session_state.open_interest = st.session_state.open_interest[-MAX_DATA_POINTS:]
+        # 移除基于数据点数量的限制，让数据自然累积
 
         return spot_price, futures_price, premium, funding_rate, open_interest
 
