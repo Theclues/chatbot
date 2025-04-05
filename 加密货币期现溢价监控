@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import time
 import requests
+import json
+import os
 from datetime import datetime, timedelta, timezone
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -11,7 +13,7 @@ st.set_page_config(
     page_title="加密货币费率监控系统",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed"  # 默认折叠侧边栏
 )
 
 # 初始化会话状态
@@ -28,11 +30,29 @@ if 'timestamps' not in st.session_state:
     st.session_state.running = False
     st.session_state.charts = [None, None, None]
     st.session_state.historical_data_loaded = False
+    st.session_state.stats_data = None
+    st.session_state.last_stats_update = None
 
 # 常量
 UPDATE_INTERVAL = 10  # 数据更新间隔（秒）
 MAX_DATA_POINTS = 240  # 最大数据点数量 (4小时 = 240分钟)
 HOURS_TO_DISPLAY = 4  # 显示过去多少小时的数据
+STATS_FILE = "funding_rates_stats.json"  # 统计数据文件
+
+
+# 读取统计数据
+def load_stats_data():
+    try:
+        if os.path.exists(STATS_FILE):
+            with open(STATS_FILE, 'r') as f:
+                data = json.load(f)
+                st.session_state.stats_data = data
+                st.session_state.last_stats_update = datetime.now()
+                return data
+        return None
+    except Exception as e:
+        st.error(f"读取统计数据出错: {e}")
+        return None
 
 
 # 获取现货价格
@@ -289,8 +309,6 @@ def update_data(symbol):
                     st.session_state.funding_rates = st.session_state.funding_rates[start_idx:]
                     st.session_state.open_interest = st.session_state.open_interest[start_idx:]
 
-        # 移除基于数据点数量的限制，让数据自然累积
-
         return spot_price, futures_price, premium, funding_rate, open_interest
 
     return None, None, None, funding_rate, open_interest
@@ -498,70 +516,106 @@ def load_historical_data(symbol):
     return True
 
 
-# Streamlit应用
-st.title("加密货币期现溢价监控")
+def display_stats_data():
+    # 检查是否需要更新数据（每分钟更新一次）
+    if (st.session_state.last_stats_update is None or
+            (datetime.now() - st.session_state.last_stats_update).total_seconds() > 60):
+        load_stats_data()
 
-# 创建一个容器来限制整体宽度
-container = st.container()
+    if st.session_state.stats_data:
+        data = st.session_state.stats_data
+        timestamp = data.get("timestamp", "未知")
 
-# 在容器内创建布局
-with container:
-    # 使用CSS来限制整体宽度
-    st.markdown("""
-    <style>
-    .main-container {
-        max-width: 700px;  # 调整这个值来控制整体宽度
-        margin: 0 auto;
-    }
+        # 创建四列布局
+        col1, col2, col3, col4 = st.columns(4)
 
-    .stTextInput > div > div > input {
-        padding-top: 2px;
-        padding-bottom: 2px;
-    }
+        # 1. 费率最高的交易对
+        with col1:
+            st.subheader("费率最高的交易对")
+            if "highest_rates" in data and data["highest_rates"]:
+                df_highest = pd.DataFrame([
+                    {"交易对": item.get("symbol", ""),
+                     "费率": f"{item.get('rate', 0) * 100:.2f}%"}
+                    for item in data["highest_rates"]
+                ])
+                st.dataframe(df_highest, hide_index=True)
+            else:
+                st.write("暂无数据")
 
-    .stButton > button {
-        padding-top: 2px;
-        padding-bottom: 2px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+        # 2. 费率最低的交易对
+        with col2:
+            st.subheader("费率最低的交易对")
+            if "lowest_rates" in data and data["lowest_rates"]:
+                df_lowest = pd.DataFrame([
+                    {"交易对": item.get("symbol", ""),
+                     "费率": f"{item.get('rate', 0) * 100:.2f}%"}
+                    for item in data["lowest_rates"]
+                ])
+                st.dataframe(df_lowest, hide_index=True)
+            else:
+                st.write("暂无数据")
 
-    # 创建一个div来包装所有控件
-    st.markdown('<div class="main-container">', unsafe_allow_html=True)
+        # 3. 费率增长最大的交易对
+        with col3:
+            st.subheader("费率上升最快")
+            if "biggest_increases" in data and data["biggest_increases"]:
+                df_increases = pd.DataFrame([
+                    {"交易对": item.get("symbol", ""),
+                     "变化": f"{item.get('change', 0) * 100:.4f}%"}
+                    for item in data["biggest_increases"]
+                ])
+                st.dataframe(df_increases, hide_index=True)
+            else:
+                st.write("暂无数据")
 
-    # 创建水平布局
-    cols = st.columns([1.2, 2.5, 1, 1])
+        # 4. 费率下降最大的交易对
+        with col4:
+            st.subheader("费率下降最快")
+            if "biggest_decreases" in data and data["biggest_decreases"]:
+                df_decreases = pd.DataFrame([
+                    {"交易对": item.get("symbol", ""),
+                     "变化": f"{item.get('change', 0) * 100:.4f}%"}
+                    for item in data["biggest_decreases"]
+                ])
+                st.dataframe(df_decreases, hide_index=True)
+            else:
+                st.write("暂无数据")
 
-    # 标签列
-    with cols[0]:
-        st.markdown('<div style="padding-top: 8px;">输入交易对:</div>', unsafe_allow_html=True)
+        # 显示更新时间
+        st.caption(f"更新时间: {timestamp}")
+    else:
+        st.error("未能加载数据，请检查API连接")
 
-    # 输入框列
-    with cols[1]:
-        new_symbol = st.text_input(
-            "输入交易对",  # 提供一个非空的 label
-            value=st.session_state.symbol,
-            placeholder="例如: BTCUSDT, ETHUSDT",
-            label_visibility="collapsed"  # 隐藏标签，保持原有外观
-        )
-        if new_symbol != st.session_state.symbol:
-            st.session_state.symbol = new_symbol
-            # 重置数据
-            st.session_state.timestamps = []
-            st.session_state.spot_prices = []
-            st.session_state.futures_prices = []
-            st.session_state.premiums = []
-            st.session_state.funding_rates = []
-            st.session_state.open_interest = []
-            st.session_state.last_funding_rate = None
-            st.session_state.historical_data_loaded = False
-            st.session_state.charts = [None, None, None]
-            if st.session_state.running:
-                st.session_state.running = False
-            st.rerun()
 
-    # 开始/停止按钮列
-    with cols[2]:
+# 侧边栏控件
+with st.sidebar:
+    st.title("监控设置")
+
+    new_symbol = st.text_input(
+        "输入交易对",
+        value=st.session_state.symbol,
+        placeholder="例如: BTCUSDT, ETHUSDT"
+    )
+
+    if new_symbol != st.session_state.symbol:
+        st.session_state.symbol = new_symbol
+        # 重置数据
+        st.session_state.timestamps = []
+        st.session_state.spot_prices = []
+        st.session_state.futures_prices = []
+        st.session_state.premiums = []
+        st.session_state.funding_rates = []
+        st.session_state.open_interest = []
+        st.session_state.last_funding_rate = None
+        st.session_state.historical_data_loaded = False
+        st.session_state.charts = [None, None, None]
+        if st.session_state.running:
+            st.session_state.running = False
+        st.rerun()
+
+    col1, col2 = st.columns(2)
+
+    with col1:
         start_stop = st.button('开始监控' if not st.session_state.running else '停止监控', use_container_width=True)
         if start_stop:
             st.session_state.running = not st.session_state.running
@@ -573,8 +627,7 @@ with container:
                     st.session_state.running = False
                 st.rerun()
 
-    # 清除数据按钮列
-    with cols[3]:
+    with col2:
         if st.button('清除数据', use_container_width=True):
             st.session_state.timestamps = []
             st.session_state.spot_prices = []
@@ -587,8 +640,10 @@ with container:
             st.session_state.charts = [None, None, None]
             st.rerun()
 
-    # 关闭主容器div
-    st.markdown('</div>', unsafe_allow_html=True)
+# 主页面标题
+st.title("加密货币期现溢价监控")
+
+display_stats_data()
 
 # 创建固定容器 - 只用于显示最新数据
 metrics_placeholder = st.empty()
@@ -624,6 +679,8 @@ if st.session_state.running:
         # 更新数据
         spot_price, futures_price, premium, funding_rate, open_interest = update_data(st.session_state.symbol)
 
+
+
         # 使用单个占位符显示最新指标
         if spot_price is not None and futures_price is not None:
             # 获取UTC时间并格式化
@@ -653,7 +710,9 @@ if st.session_state.running:
             progress_placeholder.progress(1 - i / UPDATE_INTERVAL, text=f"下次更新倒计时: {i}秒")
             time.sleep(1)
 else:
-    st.info(f"点击'开始监控'按钮开始实时监控 {st.session_state.symbol}")
+
+
+    st.info(f"点击侧边栏中的'开始监控'按钮开始实时监控 {st.session_state.symbol}")
 
     # 如果有历史数据，显示最后的图表
     if st.session_state.timestamps:
